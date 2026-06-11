@@ -25,17 +25,16 @@ This project demonstrates practical understanding of enterprise email authentica
 
 ### Before / After State
 
-<img width="1512" height="408" alt="phase3-dkim-mxtoolbox" src="https://github.com/user-attachments/assets/ea2314e3-98bf-4371-8a54-e341699dcf6b" />
-
-<img width="1210" height="632" alt="phase4-dmarc-no-record" src="https://github.com/user-attachments/assets/aede6f31-9ff6-40eb-947e-01b0b25f5db3" />
-
-
 
 | Protocol | Phase 1 (Before) | Phase 3+ (After) |
 |----------|-----------------|-----------------|
 | SPF | ✅ Pass | ✅ Pass |
 | DKIM | ❌ Not signing | ✅ Pass |
 | DMARC | ❌ Fail (no record) | ⚠️ No record (DNS limitation) |
+
+<img width="1210" height="632" alt="phase4-dmarc-no-record" src="https://github.com/user-attachments/assets/aede6f31-9ff6-40eb-947e-01b0b25f5db3" />
+
+<img width="1512" height="408" alt="phase3-dkim-mxtoolbox" src="https://github.com/user-attachments/assets/ea2314e3-98bf-4371-8a54-e341699dcf6b" />
 
 > **Note:** DMARC could not be fully implemented due to a DNS limitation of `.onmicrosoft.com` domains. See [Phase 4 documentation](docs/dmarc-implementation.md) for full explanation and what the record would look like in production.
 
