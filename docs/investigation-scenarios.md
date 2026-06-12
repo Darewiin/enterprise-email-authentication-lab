@@ -104,6 +104,8 @@ After updating:
 
 ---
 
+> **Note:** This is a documented hypothetical scenario based on known Business Email Compromise (BEC) attack patterns. Header findings are illustrative — a live spoofing attempt was not generated in this lab environment.
+
 ## Scenario C — Spoofing Attempt Investigation
 
 ### Situation
