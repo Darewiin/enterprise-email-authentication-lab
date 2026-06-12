@@ -6,7 +6,7 @@
 ![Microsoft 365](https://img.shields.io/badge/Microsoft_365-0078D4?style=flat-square&logo=microsoft&logoColor=white)
 ![SPF](https://img.shields.io/badge/SPF-Configured-10b981?style=flat-square)
 ![DKIM](https://img.shields.io/badge/DKIM-Enabled-10b981?style=flat-square)
-![DMARC](https://img.shields.io/badge/DMARC-Documented-f59e0b?style=flat-square)
+![DMARC](https://img.shields.io/badge/DMARC-Enforced%20p%3Dreject-10b981?style=flat-square)
 
 ---
 
@@ -26,17 +26,17 @@ This project demonstrates practical understanding of enterprise email authentica
 ### Before / After State
 
 
-| Protocol | Phase 1 (Before) | Phase 3+ (After) |
-|----------|-----------------|-----------------|
+| Protocol | Phase 1 (Before) | After Custom Domain |
+|----------|-----------------|---------------------|
 | SPF | ✅ Pass | ✅ Pass |
-| DKIM | ❌ Not signing | ✅ Pass |
-| DMARC | ❌ Fail (no record) | ⚠️ No record (DNS limitation) |
+| DKIM | ❌ Not signing | ✅ Pass (northgsolutions.com) |
+| DMARC | ❌ Fail (no record) | ✅ p=reject enforced |
 
 <img width="1210" height="632" alt="phase4-dmarc-no-record" src="https://github.com/user-attachments/assets/aede6f31-9ff6-40eb-947e-01b0b25f5db3" />
 
 <img width="1512" height="408" alt="phase3-dkim-mxtoolbox" src="https://github.com/user-attachments/assets/ea2314e3-98bf-4371-8a54-e341699dcf6b" />
 
-> **Note:** DMARC could not be fully implemented due to a DNS limitation of `.onmicrosoft.com` domains. See [Phase 4 documentation](docs/dmarc-implementation.md) for full explanation and what the record would look like in production.
+> **Note:** DMARC was initially limited by the `.onmicrosoft.com` managed DNS. A custom domain (`northgsolutions.com`) was purchased and configured in Cloudflare, enabling full SPF, DKIM, and DMARC p=reject enforcement. See [Phase 4 documentation](docs/dmarc-implementation.md) for the full implementation details.
 
 ---
 
@@ -46,18 +46,22 @@ This project demonstrates practical understanding of enterprise email authentica
 |-----------|---------|
 | **Platform** | Microsoft 365 E5 |
 | **Email service** | Exchange Online |
-| **Domain** | northgsolutions.onmicrosoft.com |
-| **DNS provider** | Microsoft Corporation (managed) |
+| **Domain** | northgsolutions.com |
+| **DNS provider** | Cloudflare (full DNS control) |
 | **Tools used** | MXToolbox, Google Admin Toolbox, Microsoft Defender portal, Exchange admin center |
 | **Builds on** | [UEM Lab](https://github.com/Darewiin/unified-endpoint-management-lab) — same Northgate Solutions tenant |
 
 ---
 
-## Key DNS Limitation
+## Custom Domain Implementation
 
-This lab uses a Microsoft-managed `.onmicrosoft.com` domain. Microsoft controls the DNS centrally, meaning SPF and DMARC records cannot be modified or added directly. In a production environment with a custom domain (e.g., `northgatesolutions.com`), the administrator would have full DNS control and could configure all three records independently.
+This lab was upgraded from a Microsoft-managed `.onmicrosoft.com` domain to a custom domain (`northgsolutions.com`) registered on Cloudflare Registrar. This gave full DNS control, enabling:
 
-This limitation was encountered and documented throughout the project — including MXToolbox confirming **"Your DNS hosting provider is Microsoft Corporation"** and the DMARC lookup showing no record exists for either `northgsolutions.onmicrosoft.com` or the organizational domain `onmicrosoft.com`.
+- **SPF** — configured and verified directly in Cloudflare DNS
+- **DKIM** — CNAME selectors added in Cloudflare, signing enabled in Microsoft Defender portal
+- **DMARC** — TXT record published at `_dmarc.northgsolutions.com`, progressed through all three enforcement stages (none → quarantine → reject)
+
+The `.onmicrosoft.com` DNS limitation documented in Phase 2-4 is preserved as historical context — it represents the realistic constraint most lab environments face and demonstrates understanding of why custom domains matter in production email security.
 
 ---
 
@@ -96,7 +100,7 @@ Outbound (Northgate → Gmail)
 │                          ↓                              │
 │  Gmail receives → checks SPF → PASS                    │
 │  Gmail verifies DKIM signature → PASS                   │
-│  Gmail checks DMARC → FAIL (no record published)        │
+│  Gmail checks DMARC → PASS (p=reject enforced)          │
 │  Delivered in 4 seconds                                 │
 └─────────────────────────────────────────────────────────┘
 
@@ -139,6 +143,8 @@ Inbound (Gmail → Northgate)
 ## Related Project
 
 This lab complements the **[Unified Endpoint Management Lab](https://github.com/Darewiin/unified-endpoint-management-lab)** — together they demonstrate both endpoint security (device compliance, Conditional Access, identity management) and communication security (email authentication, mail flow, spoofing prevention).
+
+> SPF, DKIM, and DMARC fully implemented with custom domain enforcement
 
 ---
 
