@@ -52,121 +52,126 @@ Email is functioning correctly. Authentication is working. The DMARC failure wou
 
 ## Scenario B — SPF Failure Investigation
 
+> **Evidence:** This scenario was reproduced in the lab. SPF failure was intentionally triggered by temporarily modifying the SPF record to `v=spf1 -all`, blocking all authorized senders including Microsoft Exchange Online servers.
+
 ### Situation
-A user reports that emails they send to external contacts are landing in spam folders. No bounce messages. Recipients confirm the emails arrive but are flagged as suspicious.
+A user reports that emails sent to external contacts are landing in spam folders or being rejected. No bounce messages initially. Recipients confirm emails arrive flagged as suspicious or do not arrive at all.
 
 ### Symptoms
-- Outbound emails from specific users consistently going to recipient spam
-- No error messages or delivery failures on the sending side
-- Recipient spam filter notes: "SPF authentication failed"
-- Issue started after the company began using a new marketing platform
+- Outbound emails from `jmartinez@northgsolutions.com` not reaching Gmail inbox
+- No error on the sending side — Outlook shows email as sent
+- Recipient spam filter notes SPF authentication failure
+- Issue triggered after SPF record was modified
 
 ### Investigation Steps
-1. Ask the affected user which email address and which recipients are affected
-2. Ask a recipient to share the email headers showing the SPF result
-3. Go to **Exchange admin center → Mail flow → Message trace** — confirm the email was sent through Exchange Online
-4. Run **MXToolbox SPF Lookup** on the sending domain — review the current record
-5. Identify all services currently sending email on behalf of the domain
-6. Compare authorized senders in SPF record against actual sending services
-7. Check if the SPF record exceeds 10 DNS lookups (lookup limit)
+1. Ask the affected user which email address they sent from and to which recipient
+2. Go to **Exchange admin center → Mail flow → Message trace** — confirm the email was sent through Exchange Online
+3. Run **MXToolbox SPF Lookup** on `northgsolutions.com` — review the current record
+4. Check if the SPF record is correct: `v=spf1 include:spf.protection.outlook.com -all`
+5. Ask the recipient to forward the email with headers showing the SPF result
+6. Analyze the Authentication-Results header for SPF verdict
 
 ### Findings
-```
-Current SPF record:
-v=spf1 include:spf.protection.outlook.com -all
 
-Marketing platform sending IP: 198.2.136.64 (Mailchimp)
-SPF check result: FAIL — 198.2.136.64 not found in spf.protection.outlook.com
-```
-
-The marketing platform was added recently but its servers were never added to the SPF record. Receiving servers checked the SPF record, found the Mailchimp IP was not authorized, and flagged the email as a potential spoof.
+SPF check failed because the record `v=spf1 -all` blocks all senders — including Microsoft's Exchange Online servers. The sending IP `2a01:111:f403:c107::3` is a legitimate Microsoft Exchange Online server but was not authorized by the misconfigured SPF record. The sending IP was not found in any authorized range.
 
 ### Root Cause
-**Missing SPF include for third-party sender.** The organization added a marketing email platform after the SPF record was created. The new platform's servers are not covered by `include:spf.protection.outlook.com`. Receiving servers correctly rejected the emails as unauthorized.
+**Misconfigured SPF record.** The `-all` mechanism without any preceding `include:` statement rejects all senders. Microsoft Exchange Online's sending servers (`spf.protection.outlook.com`) were not listed as authorized, causing every outbound email to fail SPF validation at the recipient's server.
 
 ### Resolution
-Update the SPF record to include the marketing platform:
-```
-v=spf1 include:spf.protection.outlook.com include:servers.mcsv.net -all
-```
-
-After updating:
-1. Wait 30-60 minutes for DNS propagation
-2. Send a test email through the marketing platform
-3. Verify SPF pass in the recipient's email headers
-4. Confirm emails are no longer landing in spam
+1. Go to **Cloudflare DNS** → find the SPF TXT record → Edit
+2. Restore the correct value: v=spf1 include:spf.protection.outlook.com -all
+3. Save → wait 5-10 minutes for DNS propagation
+4. Run **MXToolbox SPF Lookup** → confirm single clean record
+5. Send test email → verify `spf=pass` in recipient headers
 
 ### Prevention
-- **Audit all third-party senders** before finalizing the SPF record
-- **Document every service** that sends email on behalf of the domain
-- **Monitor SPF lookup count** — stay below 10 to avoid "SPF PermError"
-- **Review SPF record** whenever a new email service is added
-
----
-
-> **Note:** This is a documented hypothetical scenario based on known Business Email Compromise (BEC) attack patterns. Header findings are illustrative — a live spoofing attempt was not generated in this lab environment.
+- Never modify the SPF record without first documenting the current value
+- Always test with MXToolbox after any SPF change before considering it complete
+- Use `-all` (hard fail) for full enforcement — but only after confirming all authorized senders are listed
+- If using third-party senders (Mailchimp, Salesforce, HubSpot), add their include mechanisms before deploying `-all`
+- Monitor SPF lookup count — RFC limit is 10 DNS lookups per SPF evaluation
 
 ## Scenario C — Spoofing Attempt Investigation
 
+> **Evidence:** This scenario was reproduced in the lab. A DMARC rejection was 
+triggered by temporarily setting the DMARC policy to `p=reject` while SPF and 
+DKIM were broken, causing Gmail to reject the email entirely and return a bounce 
+message to the sender.
+
 ### Situation
-A user receives an email appearing to be from the CEO requesting an urgent wire transfer to a new vendor. The request asks for secrecy and to bypass normal approval processes. The user is suspicious and escalates to IT.
+A user receives a bounce notification stating their email was rejected by the 
+recipient's server due to the domain's DMARC policy. In a real-world context, 
+this same mechanism blocks attackers attempting to spoof a domain that has DMARC 
+enforcement enabled.
 
 ### Symptoms
-- Email appears to come from `ceo@northgsolutions.onmicrosoft.com`
-- Request is unusual: urgent, financial, requests secrecy
-- CEO is "traveling" and cannot be reached by phone per the email
-- User did not initiate any vendor relationship mentioned in the email
+- Email sent from `jmartinez@northgsolutions.com` to external Gmail was rejected
+- Bounce message received in Outlook: "mx.google.com rejected your message"
+- Error states: "Unauthenticated email from northgsolutions.com is not accepted 
+due to domain's DMARC policy"
+- No email delivered to the recipient
 
 ### Investigation Steps
-1. **Do NOT click any links or reply to the email**
-2. Open the email headers — Outlook web: three dots → View message details
-3. Check **From:** vs **Return-Path** — do they share the same domain?
-4. Check **Authentication-Results** — did SPF, DKIM, and DMARC pass?
-5. Run the sending domain/IP through **MXToolbox** and a **blacklist check**
-6. Contact the CEO through a verified channel (phone, Teams) to confirm
-7. Run the email through **Microsoft Defender → Explorer** for threat intelligence
-8. Check **Exchange admin center → Message trace** for the email's origin
+1. Review the bounce message in the sender's Outlook inbox
+2. Identify the rejecting server — in this case `mx.google.com`
+3. Check Authentication-Results in the bounce headers for SPF, DKIM, and DMARC verdicts
+4. Verify DMARC policy is set to `p=reject` in Cloudflare DNS
+5. Run **MXToolbox DMARC Lookup** on `northgsolutions.com` — confirm active policy
+6. Determine whether SPF and DKIM are passing or failing
 
 ### Findings
-```
-From: CEO <ceo@northgsolutions.onmicrosoft.com>    ← what user sees
-Return-Path: noreply@attacker-domain.com            ← what SPF checks
 
-Authentication-Results:
-  spf=fail (attacker-domain.com not authorized)
-  dkim=fail (no valid DKIM signature from northgsolutions.onmicrosoft.com)
-  dmarc=fail (neither SPF nor DKIM aligns with From: domain)
+<img width="1036" height="551" alt="phase-d-dmarc-fail" src="https://github.com/user-attachments/assets/314f1dcc-0253-4435-a354-174fca094139" />
 
-Received: from mail.attacker-domain.com (45.33.32.156)
-  → This IP has no relationship to Microsoft's servers
-```
+The bounce message above was received in Jordan Martinez's Outlook inbox after 
+sending to Gmail with DMARC p=reject active and SPF/DKIM broken. Gmail's 
+receiving server evaluated the email against the published DMARC record and 
+rejected it with the following error:
 
-The From: header was manually crafted to show the CEO's address. The actual sending server belongs to an external attacker. SPF, DKIM, and DMARC all fail because the attacker has no access to Northgate's authorized servers or signing keys.
+"Unauthenticated email from northgsolutions.com is not accepted due to 
+domain's DMARC policy."
+
+DMARC policy at time of rejection:
+v=DMARC1; p=reject; rua=mailto:dmarc@northgsolutions.com
+
+Authentication failure:
+- SPF: fail — sending IP not authorized (v=spf1 -all)
+- DKIM: not signing (disabled during test)
+- DMARC: fail → p=reject → email blocked entirely
 
 ### Root Cause
-**Business Email Compromise (BEC) / CEO impersonation attack.** An external attacker spoofed the From: header to impersonate the CEO. The attack exploited the absence of a DMARC reject policy — without `p=reject`, the email was delivered despite failing all authentication checks. Microsoft's Spoof Intelligence flagged the email but delivered it with a warning rather than blocking it.
+**DMARC p=reject enforcement blocked unauthenticated email.** With SPF broken 
+(`v=spf1 -all`) and DKIM disabled, neither authentication mechanism passed. The 
+DMARC policy of `p=reject` instructed receiving servers to block the message 
+entirely rather than deliver it. This is the intended behavior — any email that 
+cannot be authenticated by SPF or DKIM is rejected outright.
+
+In a real spoofing scenario, an attacker sending email claiming to be from 
+`northgsolutions.com` using unauthorized servers would receive this same 
+rejection — protecting recipients from impersonation attacks.
 
 ### Resolution
-**Immediate:**
-1. Alert the user — do not respond, do not transfer funds
-2. Delete the email from the mailbox
-3. Block the sending domain (`attacker-domain.com`) in Exchange anti-spam rules
-4. Report to the security team for further investigation
-5. Notify the CEO that their name is being used in an active phishing campaign
+**For the lab test:**
+1. Restore SPF record: `v=spf1 include:spf.protection.outlook.com -all`
+2. Re-enable DKIM in Microsoft Defender portal for `northgsolutions.com`
+3. Confirm legitimate email flows normally after restoration
 
-**Short-term:**
-6. Enable DMARC with `p=quarantine` to begin blocking similar attempts
-7. Train users on BEC recognition — urgency, secrecy, and financial requests are red flags
-8. Implement an external email banner in Exchange to alert users when email comes from outside the organization
-
-**Long-term:**
-9. Move to a custom domain and implement DMARC `p=reject` for full enforcement
-10. Enable Microsoft Defender's impersonation protection features
-11. Implement a call-back verification policy for financial requests over a defined threshold
+**In a real spoofing incident:**
+1. Confirm the rejection was triggered by an attacker, not a misconfiguration
+2. Check Exchange admin center → Message trace for any related activity
+3. Alert users that the domain is being targeted
+4. Verify DMARC, SPF, and DKIM are all correctly configured
+5. Consider enabling Microsoft Defender impersonation protection
 
 ### Prevention
-A published DMARC `p=reject` policy would have blocked this email before it reached the inbox. This is the clearest illustration of why DMARC enforcement matters — Spoof Intelligence helps, but a properly configured DMARC rejection policy is the definitive defense against domain impersonation attacks.
-
+- A published DMARC `p=reject` policy is the definitive defense against domain spoofing
+- Without DMARC enforcement, SPF and DKIM alone cannot prevent spoofed emails 
+from reaching inboxes
+- Progressive deployment (none → quarantine → reject) ensures legitimate mail is 
+not disrupted during enforcement rollout
+- Monitor DMARC aggregate reports (`rua`) to identify unauthorized senders 
+attempting to use your domain
 ---
 
 ## Investigation Summary
